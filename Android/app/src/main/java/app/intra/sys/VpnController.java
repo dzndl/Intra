@@ -18,8 +18,8 @@ package app.intra.sys;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import androidx.annotation.Nullable;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-import app.intra.net.doh.ServerConnection;
 
 // Singleton class to maintain state related to VPN Tunnel service.
 public class VpnController {
@@ -38,7 +38,7 @@ public class VpnController {
   }
 
   private IntraVpnService intraVpnService = null;
-  private ServerConnection.State connectionState = null;
+  private IntraVpnService.State connectionState = null;
   private QueryTracker tracker = null;
 
   private VpnController() {}
@@ -47,7 +47,11 @@ public class VpnController {
     this.intraVpnService = intraVpnService;
   }
 
-  synchronized void onConnectionStateChanged(Context context, ServerConnection.State state) {
+  public @Nullable IntraVpnService getIntraVpnService() {
+    return this.intraVpnService;
+  }
+
+  public synchronized void onConnectionStateChanged(Context context, IntraVpnService.State state) {
     if (intraVpnService == null) {
       // User clicked disable while the connection state was changing.
       return;
@@ -57,7 +61,7 @@ public class VpnController {
   }
 
   private void stateChanged(Context context) {
-    Intent broadcast = new Intent(Names.DNS_STATUS.name());
+    Intent broadcast = new Intent(InternalNames.DNS_STATUS.name());
     LocalBroadcastManager.getInstance(context).sendBroadcast(broadcast);
   }
 

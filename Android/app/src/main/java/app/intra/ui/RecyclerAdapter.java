@@ -28,7 +28,7 @@ import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import app.intra.R;
 import app.intra.net.dns.DnsPacket;
-import app.intra.sys.LogWrapper;
+import app.intra.sys.firebase.LogWrapper;
 import com.google.common.net.InternetDomainName;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -442,13 +442,7 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
       // getDrawable automatically rasterizes vector drawables as needed on pre-Lollipop Android.
       // See https://stackoverflow.com/questions/29041027/android-getresources-getdrawable-deprecated-api-22
       Drawable expander = ContextCompat.getDrawable(activity, R.drawable.expander);
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-        // Only available in API 16+.
-        expand.setBackground(expander);
-      } else {
-        // Deprecated starting in API 16.
-        expand.setBackgroundDrawable(expander);
-      }
+      expand.setBackground(expander);
 
       return new TransactionViewHolder(v);
     } else {

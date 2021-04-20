@@ -15,6 +15,7 @@ limitations under the License.
 */
 package app.intra.ui;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
@@ -68,20 +69,21 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import app.intra.R;
 import app.intra.net.doh.Race;
-import app.intra.net.doh.ServerConnection;
-import app.intra.net.doh.ServerConnectionFactory;
 import app.intra.net.doh.Transaction;
-import app.intra.sys.LogWrapper;
-import app.intra.sys.Names;
+import app.intra.sys.IntraVpnService;
+import app.intra.sys.firebase.AnalyticsWrapper;
+import app.intra.sys.firebase.LogWrapper;
+import app.intra.sys.InternalNames;
 import app.intra.sys.PersistentState;
 import app.intra.sys.QueryTracker;
-import app.intra.sys.RemoteConfig;
 import app.intra.sys.VpnController;
 import app.intra.sys.VpnState;
+import app.intra.sys.firebase.RemoteConfig;
 import app.intra.ui.settings.ServerApprovalDialogFragment;
 import app.intra.ui.settings.SettingsFragment;
 import com.google.android.material.navigation.NavigationView;
-import com.google.firebase.analytics.FirebaseAnalytics;
+import com.google.android.material.switchmaterial.SwitchMaterial;
+
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
@@ -112,10 +114,10 @@ public class MainActivity extends AppCompatActivity
       new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-          if (Names.RESULT.name().equals(intent.getAction())) {
+          if (InternalNames.RESULT.name().equals(intent.getAction())) {
             updateStatsDisplay(getNumRequests(),
-                (Transaction) intent.getSerializableExtra(Names.TRANSACTION.name()));
-          } else if (Names.DNS_STATUS.name().equals(intent.getAction())) {
+                (Transaction) intent.getSerializableExtra(InternalNames.TRANSACTION.name()));
+          } else if (InternalNames.DNS_STATUS.name().equals(intent.getAction())) {
             syncDnsStatus();
           }
         }
@@ -160,7 +162,7 @@ public class MainActivity extends AppCompatActivity
     // Sync old settings into new preferences if necessary.
     PersistentState.syncLegacyState(this);
 
-    // Start an asynchronous fetch for the Firebase remote configuration.
+    // Start an asynchronous fetch of remote configuration info from Firebase.
     RemoteConfig.update();
 
     // Export defaults into preferences.  See https://developer.android.com/guide/topics/ui/settings#Defaults
@@ -241,8 +243,8 @@ public class MainActivity extends AppCompatActivity
     recyclerView.setAdapter(adapter);
 
     // Register broadcast receiver
-    IntentFilter intentFilter = new IntentFilter(Names.RESULT.name());
-    intentFilter.addAction(Names.DNS_STATUS.name());
+    IntentFilter intentFilter = new IntentFilter(InternalNames.RESULT.name());
+    intentFilter.addAction(InternalNames.DNS_STATUS.name());
     LocalBroadcastManager.getInstance(this).registerReceiver(messageReceiver, intentFilter);
 
     prepareHyperlinks(this, findViewById(R.id.activity_main));
@@ -265,7 +267,7 @@ public class MainActivity extends AppCompatActivity
         false);
 
     // Set up the main UI
-    final Switch switchButton = controlView.findViewById(R.id.dns_switch);
+    final SwitchMaterial switchButton = controlView.findViewById(R.id.dns_switch);
     switchButton.setOnCheckedChangeListener(
         new CompoundButton.OnCheckedChangeListener() {
           @Override
@@ -305,10 +307,9 @@ public class MainActivity extends AppCompatActivity
       tryAllButton.setEnabled(false);
       tryAllButton.setText(R.string.checking_servers);
       String[] urls = getResources().getStringArray(R.array.urls);
-      FirebaseAnalytics analytics = FirebaseAnalytics.getInstance(this);
-      analytics.logEvent(Names.TRY_ALL_REQUESTED.name(), null);
+      AnalyticsWrapper.get(this).logTryAllRequested();
       // The result needs to be posted to the UI thread before we can make UI changes.
-      new Race(new ServerConnectionFactory(this), urls, (int index) -> view.post(() -> {
+      Race.start(this, urls, (int index) -> view.post(() -> {
         if (index >= 0) {
           // By the time this callback runs, MainActivity may have been stopped.  In this situation
           // showing a DialogFragment directly causes an IllegalStateException.  Using
@@ -318,11 +319,11 @@ public class MainActivity extends AppCompatActivity
               .commitAllowingStateLoss();
         } else {
           Toast.makeText(this, R.string.all_servers_failed, Toast.LENGTH_LONG).show();
-          analytics.logEvent(Names.TRY_ALL_FAILED.name(), null);
+          AnalyticsWrapper.get(this).logTryAllFailed();
         }
         tryAllButton.setText(R.string.try_all_servers);
         tryAllButton.setEnabled(true);
-      })).start();
+      }));
     });
 
     // Set up click listeners for the info boxes.
@@ -468,6 +469,8 @@ public class MainActivity extends AppCompatActivity
   }
 
   // Returns whether the device supports the tunnel VPN service.
+  // This is just in case someone sideloads the app onto an ancient device.
+  @SuppressLint("ObsoleteSdkInt")
   private boolean hasVpnService() {
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH;
   }
@@ -608,7 +611,7 @@ public class MainActivity extends AppCompatActivity
     VpnState status = VpnController.getInstance().getState(this);
 
     // Change switch-button state
-    final Switch switchButton = controlView.findViewById(R.id.dns_switch);
+    final SwitchMaterial switchButton = controlView.findViewById(R.id.dns_switch);
     switchButton.setChecked(status.activationRequested);
 
     // Change indicator text
@@ -627,10 +630,10 @@ public class MainActivity extends AppCompatActivity
       if (status.connectionState == null) {
         statusId = R.string.status_waiting;
         explanationId = R.string.explanation_offline;
-      } else if (status.connectionState == ServerConnection.State.NEW) {
+      } else if (status.connectionState == IntraVpnService.State.NEW) {
         statusId = R.string.status_starting;
         explanationId = R.string.explanation_starting;
-      } else if (status.connectionState == ServerConnection.State.WORKING) {
+      } else if (status.connectionState == IntraVpnService.State.WORKING) {
         statusId = R.string.status_protected;
         explanationId = R.string.explanation_protected;
       } else {
@@ -658,7 +661,7 @@ public class MainActivity extends AppCompatActivity
 
     final int colorId;
     if (status.on) {
-      colorId = status.connectionState != ServerConnection.State.FAILING ? R.color.accent_good :
+      colorId = status.connectionState != IntraVpnService.State.FAILING ? R.color.accent_good :
           R.color.accent_bad;
     } else if (privateDnsMode == PrivateDnsMode.STRICT) {
       // If the VPN is off but we're in strict mode, show the status in white.  This isn't a bad
